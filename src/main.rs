@@ -1,8 +1,9 @@
-use gps_cluster::{image_info::ImageInfo, utils};
+use gps_cluster::utils::{self, Cluster};
 
-use std::{io::{Read, Seek, SeekFrom}, path::{Path, PathBuf}, fs::{File, metadata, read_dir}};
+use std::{path::{Path, PathBuf}, fs::{File, metadata, read_dir, create_dir, copy}, collections::{HashSet, HashMap}};
 use clap::Parser;
 use exif::{Tag, In, Value};
+use geoutils::{Location, Distance};
 
 /// This program is able to create folders of pictures,
 /// grouping them by their GPS position.
@@ -17,15 +18,16 @@ struct Args {
     #[clap(short, long, value_parser)]
     output: PathBuf,
 
+    /// The radius used to generate clusters
     #[clap(short, long, value_parser)]
-    threshold: f32,
+    threshold: f64,
 
     /// Use verbose output
     #[clap(short, long, value_parser)]
     verbose: bool,
 }
 
-fn walk(input: &PathBuf, image_infos: &mut Vec<ImageInfo>, verbose: bool) {
+fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance, verbose: bool) {
     if metadata(input).unwrap().is_file() {
         let file = std::fs::File::open(input).unwrap();
         let mut bufreader = std::io::BufReader::new(&file);
@@ -48,9 +50,34 @@ fn walk(input: &PathBuf, image_infos: &mut Vec<ImageInfo>, verbose: bool) {
 
                                 let lon_dd = utils::dms_to_dd(lon_deg, lon_min, lon_sec);
 
-
                                 if verbose {
                                     println!("{:?}: ({}, {})", input, lat_dd, lon_dd)
+                                }
+
+                                let location = Location::new(lat_dd, lon_dd);
+
+                                let mut found_cluster = false;
+
+                                for cluster in image_clusters.iter_mut() {
+                                    match location.is_in_circle(&cluster.location, threshold) {
+                                        Ok(is_in_circle) => {
+                                            if is_in_circle {
+                                                cluster.images.push(input.clone());
+
+                                                found_cluster = true;
+
+                                                break;
+                                            }
+                                        },
+                                        Err(e) => eprintln!("{}", e),
+                                    }
+                                }
+
+                                if !found_cluster {
+                                    image_clusters.push(Cluster {
+                                        location,
+                                        images: vec![input.clone()],
+                                    })
                                 }
                             }
                         }
@@ -67,20 +94,55 @@ fn walk(input: &PathBuf, image_infos: &mut Vec<ImageInfo>, verbose: bool) {
         }
     } else {
         for path in read_dir(input).unwrap() {
-            walk(&path.unwrap().path(), image_infos, verbose);
+            walk(&path.unwrap().path(), image_clusters, threshold, verbose);
         }
     }
 }
 
-fn main() {
-    let args = Args::parse();
+fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf) {
+    image_clusters
+        .iter()
+        .for_each(|cluster| {
+            output.push(cluster.fmt_location());
 
-    let mut image_infos = Vec::new();
+            if create_dir(output.clone()).is_err() {
+                eprintln!("An error occured while trying to create {:?} directory.", output);
+            } else {
+                cluster
+                    .images
+                    .iter()
+                    .for_each(|path| {
+                        output.push(path.file_name().unwrap());
+
+                        if copy(path, output.clone()).is_err() {
+                            eprintln!("An error occured while trying to save {:?}.", output);
+                        }
+
+                        output.pop();
+                    })
+            }
+
+            output.pop();
+        })
+}
+
+fn main() {
+    let mut args = Args::parse();
+
+    let mut image_clusters = Vec::new();
+
+    let out = read_dir(&args.output);
 
     if !metadata(&args.input).unwrap().is_dir() {
         eprintln!("Error: the input path must be a folder, not a file.");
-    } else if read_dir(&args.output).is_ok() {
-        walk(&args.input, &mut image_infos, args.verbose);
+    } else if out.is_ok() {
+        if out.unwrap().next().is_some() {
+            eprintln!("Error: the given output folder is not empty.")
+        } else {
+            walk(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
+
+            create_dirs(&image_clusters, &mut args.output);
+        }
     } else {
         eprintln!("Error: the output path doesn't exist, or it's not a folder.")
     }
