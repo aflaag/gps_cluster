@@ -1,7 +1,8 @@
-use gps_cluster::image_info::ImageInfo;
+use gps_cluster::{image_info::ImageInfo, utils};
 
 use std::{io::{Read, Seek, SeekFrom}, path::{Path, PathBuf}, fs::{File, metadata, read_dir}};
 use clap::Parser;
+use exif::{Tag, In, Value};
 
 /// This program is able to create folders of pictures,
 /// grouping them by their GPS position.
@@ -15,29 +16,58 @@ struct Args {
     /// The output file
     #[clap(short, long, value_parser)]
     output: PathBuf,
+
+    #[clap(short, long, value_parser)]
+    threshold: f32,
+
+    /// Use verbose output
+    #[clap(short, long, value_parser)]
+    verbose: bool,
 }
 
-fn walk(input: &PathBuf, image_infos: &mut Vec<ImageInfo>) {
+fn walk(input: &PathBuf, image_infos: &mut Vec<ImageInfo>, verbose: bool) {
     if metadata(input).unwrap().is_file() {
-        match rexif::parse_file(input) {
-            Ok(exif) => {
-                if let Some(latitude) = &exif.entries.iter().find(|entry| entry.tag == rexif::ExifTag::GPSLatitude) {
-                    if let Some(longitude) = &exif.entries.iter().find(|entry| entry.tag == rexif::ExifTag::GPSLongitude) {
-                        println!("{}, {},{}", input.display(), latitude.value_more_readable, longitude.value_more_readable);
-                    } else {
-                        println!("Error in {:?}: longitude not found", input);
+        let file = std::fs::File::open(input).unwrap();
+        let mut bufreader = std::io::BufReader::new(&file);
+        let exifreader = exif::Reader::new();
+
+        if let Ok(exif) = exifreader.read_from_container(&mut bufreader) {
+                if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
+                    if let Value::Rational(rationals) = &latitude.value {
+                        let lat_deg = rationals[0].to_f64();
+                        let lat_min = rationals[1].to_f64();
+                        let lat_sec = rationals[2].to_f64();
+
+                        let lat_dd = utils::dms_to_dd(lat_deg, lat_min, lat_sec);
+
+                        if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
+                            if let Value::Rational(rationals) = &longitude.value {
+                                let lon_deg = rationals[0].to_f64();
+                                let lon_min = rationals[1].to_f64();
+                                let lon_sec = rationals[2].to_f64();
+
+                                let lon_dd = utils::dms_to_dd(lon_deg, lon_min, lon_sec);
+
+
+                                if verbose {
+                                    println!("{:?}: ({}, {})", input, lat_dd, lon_dd)
+                                }
+                            }
+                        }
                     }
                 } else {
-                    println!("Error in {:?}: latitude not found", input);
+                    if verbose {
+                        eprintln!("Ignoring {:?}: latitude not found.", input);
+                    }
                 }
-            },
-            Err(e) => {
-                println!("Error in {:?}: {}", input, e)
+        } else {
+            if verbose {
+                eprintln!("Ignoring {:?}: unknown file format.", input);
             }
         }
     } else {
         for path in read_dir(input).unwrap() {
-            walk(&path.unwrap().path(), image_infos);
+            walk(&path.unwrap().path(), image_infos, verbose);
         }
     }
 }
@@ -50,7 +80,7 @@ fn main() {
     if !metadata(&args.input).unwrap().is_dir() {
         eprintln!("Error: the input path must be a folder, not a file.");
     } else if read_dir(&args.output).is_ok() {
-        walk(&args.input, &mut image_infos);
+        walk(&args.input, &mut image_infos, args.verbose);
     } else {
         eprintln!("Error: the output path doesn't exist, or it's not a folder.")
     }

@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 clap = { version = "3.2.20", features = ["derive"] }
 geoutils = "0.5.1"
-rexif = "0.7.3"
+kamadak-exif = "0.5.4"
