@@ -1,6 +1,6 @@
 use gps_cluster::utils::{self, Cluster};
 
-use std::{path::{Path, PathBuf}, fs::{File, metadata, read_dir, create_dir, copy}, collections::{HashSet, HashMap}};
+use std::{path::PathBuf, fs::{metadata, read_dir, create_dir, copy}};
 use clap::Parser;
 use exif::{Tag, In, Value};
 use geoutils::{Location, Distance};
@@ -69,7 +69,7 @@ fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance,
                                                 break;
                                             }
                                         },
-                                        Err(e) => eprintln!("{}", e),
+                                        Err(e) => eprintln!("Error: {}", e),
                                     }
                                 }
 
@@ -79,6 +79,10 @@ fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance,
                                         images: vec![input.clone()],
                                     })
                                 }
+                            }
+                        } else {
+                            if verbose {
+                                eprintln!("Ignoring {:?}: longitude not found.", input);
                             }
                         }
                     }
@@ -99,27 +103,47 @@ fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance,
     }
 }
 
-fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf) {
+fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf, verbose: bool) {
     image_clusters
         .iter()
         .for_each(|cluster| {
             output.push(cluster.fmt_location());
 
-            if create_dir(output.clone()).is_err() {
-                eprintln!("An error occured while trying to create {:?} directory.", output);
-            } else {
-                cluster
-                    .images
-                    .iter()
-                    .for_each(|path| {
-                        output.push(path.file_name().unwrap());
+            if let Ok(exists) = output.try_exists() {
+                let mut proceed = true;
 
-                        if copy(path, output.clone()).is_err() {
-                            eprintln!("An error occured while trying to save {:?}.", output);
+                if !exists {
+                    if create_dir(&output).is_err() {
+                        proceed = false;
+
+                        if verbose {
+                            eprintln!("Error: an error occured while trying to create {:?} directory.", output);
                         }
+                    }
+                }
 
-                        output.pop();
-                    })
+                if proceed {
+                    cluster
+                        .images
+                        .iter()
+                        .for_each(|path| {
+                            output.push(path.file_name().unwrap());
+
+                            if copy(path, &output).is_err() {
+                                eprintln!("Error: an error occured while trying to save {:?}.", output);
+                            } else {
+                                if verbose {
+                                    println!("Successfully saved {:?}.", output);
+                                }
+                            }
+
+                            output.pop();
+                        })
+                }
+            } else {
+                if verbose {
+                    eprintln!("Error: can't check existence of {:?}", output);
+                }
             }
 
             output.pop();
@@ -141,7 +165,7 @@ fn main() {
         } else {
             walk(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
 
-            create_dirs(&image_clusters, &mut args.output);
+            create_dirs(&image_clusters, &mut args.output, args.verbose);
         }
     } else {
         eprintln!("Error: the output path doesn't exist, or it's not a folder.")
