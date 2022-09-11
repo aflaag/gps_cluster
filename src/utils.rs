@@ -21,11 +21,17 @@ pub struct Cluster {
 }
 
 impl Cluster {
+    /// Returns `false` if the location is `utils::CENTER`,
+    /// or if the coordinates are NaN.
+    pub fn is_classified(&self) -> bool {
+        self.location != CENTER && !self.location.latitude().is_nan() && !self.location.longitude().is_nan()
+    }
+
     /// Used to evaluate the name of the folder of the cluster,
     /// based on the coordinates of the location; returns `UNCLASSIFIED`
-    /// if the coordintates are `NaN` or `0`.
+    /// when the cluster has an invalid location.
     pub fn fmt_location(&self) -> String {
-        if self.location == CENTER || self.location.latitude().is_nan() || self.location.longitude().is_nan() { 
+        if !self.is_classified() {
             "UNCLASSIFIED".to_string()
         } else {
             let mut output = self.location.latitude().to_string();

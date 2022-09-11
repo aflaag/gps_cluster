@@ -1,6 +1,6 @@
 use gps_cluster::utils::{self, Cluster};
 
-use std::{path::PathBuf, fs::{metadata, read_dir, create_dir, copy}};
+use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}};
 use clap::Parser;
 use exif::{Tag, In, Value};
 use geoutils::{Location, Distance};
@@ -22,6 +22,11 @@ struct Args {
     #[clap(short, long, value_parser)]
     threshold: f64,
 
+    /// If enabled, the program tries to guess the location
+    /// of the images which don't have a valid metadata.
+    #[clap(short, long, value_parser)]
+    try_guess: bool,
+
     /// Use verbose output
     #[clap(short, long, value_parser)]
     verbose: bool,
@@ -29,64 +34,64 @@ struct Args {
 
 fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance, verbose: bool) {
     if metadata(input).unwrap().is_file() {
-        let file = std::fs::File::open(input).unwrap();
+        let file = File::open(input).unwrap();
         let mut bufreader = std::io::BufReader::new(&file);
         let exifreader = exif::Reader::new();
 
         if let Ok(exif) = exifreader.read_from_container(&mut bufreader) {
-                if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
-                    if let Value::Rational(rationals) = &latitude.value {
-                        let lat_deg = rationals[0].to_f64();
-                        let lat_min = rationals[1].to_f64();
-                        let lat_sec = rationals[2].to_f64();
+            if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
+                if let Value::Rational(rationals) = &latitude.value {
+                    let lat_deg = rationals[0].to_f64();
+                    let lat_min = rationals[1].to_f64();
+                    let lat_sec = rationals[2].to_f64();
 
-                        let lat_dd = utils::dms_to_dd(lat_deg, lat_min, lat_sec);
+                    let lat_dd = utils::dms_to_dd(lat_deg, lat_min, lat_sec);
 
-                        if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
-                            if let Value::Rational(rationals) = &longitude.value {
-                                let lon_deg = rationals[0].to_f64();
-                                let lon_min = rationals[1].to_f64();
-                                let lon_sec = rationals[2].to_f64();
+                    if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
+                        if let Value::Rational(rationals) = &longitude.value {
+                            let lon_deg = rationals[0].to_f64();
+                            let lon_min = rationals[1].to_f64();
+                            let lon_sec = rationals[2].to_f64();
 
-                                let lon_dd = utils::dms_to_dd(lon_deg, lon_min, lon_sec);
+                            let lon_dd = utils::dms_to_dd(lon_deg, lon_min, lon_sec);
 
-                                if verbose {
-                                    println!("{:?}: ({}, {})", input, lat_dd, lon_dd)
-                                }
+                            if verbose {
+                                println!("{:?}: ({}, {})", input, lat_dd, lon_dd)
+                            }
 
-                                let location = Location::new(lat_dd, lon_dd);
+                            let location = Location::new(lat_dd, lon_dd);
 
-                                let mut found_cluster = false;
+                            let mut found_cluster = false;
 
-                                for cluster in image_clusters.iter_mut() {
-                                    match location.is_in_circle(&cluster.location, threshold) {
-                                        Ok(is_in_circle) => {
-                                            if is_in_circle {
-                                                cluster.images.push(input.clone());
+                            for cluster in image_clusters.iter_mut() {
+                                match location.is_in_circle(&cluster.location, threshold) {
+                                    Ok(is_in_circle) => {
+                                        if is_in_circle {
+                                            cluster.images.push(input.clone());
 
-                                                found_cluster = true;
+                                            found_cluster = true;
 
-                                                break;
-                                            }
-                                        },
-                                        Err(e) => eprintln!("Error: {}", e),
-                                    }
-                                }
-
-                                if !found_cluster {
-                                    image_clusters.push(Cluster {
-                                        location,
-                                        images: vec![input.clone()],
-                                    })
+                                            break;
+                                        }
+                                    },
+                                    Err(e) => eprintln!("Error: {}", e),
                                 }
                             }
-                        } else if verbose {
-                            eprintln!("Ignoring {:?}: longitude not found.", input);
+
+                            if !found_cluster {
+                                image_clusters.push(Cluster {
+                                    location,
+                                    images: vec![input.clone()],
+                                })
+                            }
                         }
+                    } else if verbose {
+                        eprintln!("Ignoring {:?}: longitude not found.", input);
                     }
-                } else if verbose {
-                    eprintln!("Ignoring {:?}: latitude not found.", input);
                 }
+            } else if verbose {
+                eprintln!("Ignoring {:?}: latitude not found.", input);
+            }
         } else if verbose {
             eprintln!("Ignoring {:?}: unknown file format.", input);
         }
@@ -136,6 +141,16 @@ fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bool) 
         })
 }
 
+fn try_guess(image_clusters: &mut Vec<Cluster>, verbose: bool) {
+    image_clusters
+        .iter_mut()
+        .for_each(|cluster| {
+            if !cluster.is_classified() {
+                unimplemented!()
+            }
+        })
+}
+
 fn main() {
     let mut args = Args::parse();
 
@@ -150,6 +165,10 @@ fn main() {
             eprintln!("Error: the given output folder is not empty.")
         } else {
             walk(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
+
+            if args.try_guess {
+                try_guess(&mut image_clusters, args.verbose);
+            }
 
             create_dirs(&image_clusters, &mut args.output, args.verbose);
         }
