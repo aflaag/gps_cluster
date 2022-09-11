@@ -135,7 +135,7 @@ pub fn merge_unclassified(image_clusters: &mut Vec<Cluster>) -> Cluster {
 }
 
 pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
-    let dur_time = Duration::seconds(time.try_into().unwrap());
+    // let dur_time = Duration::seconds(time.try_into().unwrap());
 
     let mut to_remove = Vec::new();
 
@@ -150,7 +150,7 @@ pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut C
                     .images
                     .iter()
                     .filter(|image| image.timestamp.is_some())
-                    .any(|image| image.timestamp.unwrap() - unclassified_image.timestamp.unwrap() < dur_time)
+                    .any(|image| (image.timestamp.unwrap() - unclassified_image.timestamp.unwrap()).num_seconds().abs() < time)
                 {
                     cluster.images.push(unclassified_image.clone());
                     to_remove.push(idx);
