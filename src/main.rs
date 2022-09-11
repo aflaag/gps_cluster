@@ -80,21 +80,15 @@ fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance,
                                     })
                                 }
                             }
-                        } else {
-                            if verbose {
-                                eprintln!("Ignoring {:?}: longitude not found.", input);
-                            }
+                        } else if verbose {
+                            eprintln!("Ignoring {:?}: longitude not found.", input);
                         }
                     }
-                } else {
-                    if verbose {
-                        eprintln!("Ignoring {:?}: latitude not found.", input);
-                    }
+                } else if verbose {
+                    eprintln!("Ignoring {:?}: latitude not found.", input);
                 }
-        } else {
-            if verbose {
-                eprintln!("Ignoring {:?}: unknown file format.", input);
-            }
+        } else if verbose {
+            eprintln!("Ignoring {:?}: unknown file format.", input);
         }
     } else {
         for path in read_dir(input).unwrap() {
@@ -103,7 +97,7 @@ fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance,
     }
 }
 
-fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf, verbose: bool) {
+fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bool) {
     image_clusters
         .iter()
         .for_each(|cluster| {
@@ -112,14 +106,10 @@ fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf, verbose: boo
             if let Ok(exists) = output.try_exists() {
                 let mut proceed = true;
 
-                if !exists {
-                    if create_dir(&output).is_err() {
-                        proceed = false;
+                if !exists && create_dir(&output).is_err() {
+                    proceed = false;
 
-                        if verbose {
-                            eprintln!("Error: an error occured while trying to create {:?} directory.", output);
-                        }
-                    }
+                    eprintln!("Error: an error occured while trying to create {:?} directory.", output);
                 }
 
                 if proceed {
@@ -131,19 +121,15 @@ fn create_dirs(image_clusters: &Vec<Cluster>, output: &mut PathBuf, verbose: boo
 
                             if copy(path, &output).is_err() {
                                 eprintln!("Error: an error occured while trying to save {:?}.", output);
-                            } else {
-                                if verbose {
-                                    println!("Successfully saved {:?}.", output);
-                                }
+                            } else if verbose {
+                                println!("Successfully saved {:?}.", output);
                             }
 
                             output.pop();
                         })
                 }
-            } else {
-                if verbose {
-                    eprintln!("Error: can't check existence of {:?}", output);
-                }
+            } else if verbose {
+                eprintln!("Error: can't check existence of {:?}", output);
             }
 
             output.pop();
