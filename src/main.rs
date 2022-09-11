@@ -1,8 +1,8 @@
-use gps_cluster::utils::{self, Cluster};
+use gps_cluster::{utils, cluster::{Cluster, Image}};
 
-use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}};
+use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}, time::Duration, io::BufReader};
 use clap::Parser;
-use exif::{Tag, In, Value};
+use exif::{Tag, In, Value, Reader};
 use geoutils::{Location, Distance};
 
 /// This program is able to create folders of pictures,
@@ -24,131 +24,15 @@ struct Args {
 
     /// If enabled, the program tries to guess the location
     /// of the images which don't have a valid metadata.
-    #[clap(short, long, value_parser)]
+    #[clap(long, value_parser, requires = "time")]
     try_guess: bool,
+
+    #[clap(long, value_parser)]
+    time: Option<u64>,
 
     /// Use verbose output
     #[clap(short, long, value_parser)]
     verbose: bool,
-}
-
-fn walk(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance, verbose: bool) {
-    if metadata(input).unwrap().is_file() {
-        let file = File::open(input).unwrap();
-        let mut bufreader = std::io::BufReader::new(&file);
-        let exifreader = exif::Reader::new();
-
-        if let Ok(exif) = exifreader.read_from_container(&mut bufreader) {
-            if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
-                if let Value::Rational(rationals) = &latitude.value {
-                    let lat_deg = rationals[0].to_f64();
-                    let lat_min = rationals[1].to_f64();
-                    let lat_sec = rationals[2].to_f64();
-
-                    let lat_dd = utils::dms_to_dd(lat_deg, lat_min, lat_sec);
-
-                    if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
-                        if let Value::Rational(rationals) = &longitude.value {
-                            let lon_deg = rationals[0].to_f64();
-                            let lon_min = rationals[1].to_f64();
-                            let lon_sec = rationals[2].to_f64();
-
-                            let lon_dd = utils::dms_to_dd(lon_deg, lon_min, lon_sec);
-
-                            if verbose {
-                                println!("{:?}: ({}, {})", input, lat_dd, lon_dd)
-                            }
-
-                            let location = Location::new(lat_dd, lon_dd);
-
-                            let mut found_cluster = false;
-
-                            for cluster in image_clusters.iter_mut() {
-                                match location.is_in_circle(&cluster.location, threshold) {
-                                    Ok(is_in_circle) => {
-                                        if is_in_circle {
-                                            cluster.images.push(input.clone());
-
-                                            found_cluster = true;
-
-                                            break;
-                                        }
-                                    },
-                                    Err(e) => eprintln!("Error: {}", e),
-                                }
-                            }
-
-                            if !found_cluster {
-                                image_clusters.push(Cluster {
-                                    location,
-                                    images: vec![input.clone()],
-                                })
-                            }
-                        }
-                    } else if verbose {
-                        eprintln!("Ignoring {:?}: longitude not found.", input);
-                    }
-                }
-            } else if verbose {
-                eprintln!("Ignoring {:?}: latitude not found.", input);
-            }
-        } else if verbose {
-            eprintln!("Ignoring {:?}: unknown file format.", input);
-        }
-    } else {
-        for path in read_dir(input).unwrap() {
-            walk(&path.unwrap().path(), image_clusters, threshold, verbose);
-        }
-    }
-}
-
-fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bool) {
-    image_clusters
-        .iter()
-        .for_each(|cluster| {
-            output.push(cluster.fmt_location());
-
-            if let Ok(exists) = output.try_exists() {
-                let mut proceed = true;
-
-                if !exists && create_dir(&output).is_err() {
-                    proceed = false;
-
-                    eprintln!("Error: an error occured while trying to create {:?} directory.", output);
-                }
-
-                if proceed {
-                    cluster
-                        .images
-                        .iter()
-                        .for_each(|path| {
-                            output.push(path.file_name().unwrap());
-
-                            if copy(path, &output).is_err() {
-                                eprintln!("Error: an error occured while trying to save {:?}.", output);
-                            } else if verbose {
-                                println!("Successfully saved {:?}.", output);
-                            }
-
-                            output.pop();
-                        })
-                }
-            } else if verbose {
-                eprintln!("Error: can't check existence of {:?}", output);
-            }
-
-            output.pop();
-        })
-}
-
-fn try_guess(image_clusters: &mut Vec<Cluster>, verbose: bool) {
-    image_clusters
-        .iter_mut()
-        .for_each(|cluster| {
-            if !cluster.is_classified() {
-                unimplemented!()
-            }
-        })
 }
 
 fn main() {
@@ -164,13 +48,23 @@ fn main() {
         if out.unwrap().next().is_some() {
             eprintln!("Error: the given output folder is not empty.")
         } else {
-            walk(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
+            utils::generate_clusters(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
 
-            if args.try_guess {
-                try_guess(&mut image_clusters, args.verbose);
+            if args.verbose {
+                println!("Clusters found before merging: {}", image_clusters.len());
             }
 
-            create_dirs(&image_clusters, &mut args.output, args.verbose);
+            utils::merge_clusters(&mut image_clusters);
+
+            if args.verbose {
+                println!("Clusters found after merging: {}", image_clusters.len());
+            }
+
+            if args.try_guess {
+                utils::try_guess(&mut image_clusters, args.time.unwrap(), args.verbose);
+            }
+
+            utils::create_dirs(&image_clusters, &mut args.output, args.verbose);
         }
     } else {
         eprintln!("Error: the output path doesn't exist, or it's not a folder.")

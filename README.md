@@ -23,3 +23,8 @@ recursively*, `<OUTPUT FOLDER>` is the output directory, which **must exist** an
 `THRESHOLD VALUE` is the radius, in **meters**, used to generate the clusters.
 Also, a `--verbose` flag is available, for a better console output.
 
+## TODO list
+
+- support for non-empty folders
+- google maps apis integrations for folder names
+
