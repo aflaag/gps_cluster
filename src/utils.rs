@@ -107,41 +107,63 @@ pub fn generate_clusters(input: &PathBuf, image_clusters: &mut Vec<Cluster>, thr
     }
 }
 
-pub fn merge_clusters(image_clusters: &mut Vec<Cluster>) {
+pub fn merge_unclassified(image_clusters: &mut Vec<Cluster>) -> Cluster {
+    let mut to_remove = Vec::new();
+
+    let mut unclassified_cluster = Cluster {
+        location: CENTER,
+        images: Vec::new(),
+    };
+
+    image_clusters
+        .iter()
+        .enumerate()
+        .for_each(|(idx, cluster)| {
+            if !cluster.is_classified() {
+                unclassified_cluster.images.extend(cluster.images.clone());
+
+                to_remove.push(idx);
+            }
+        });
+
+    to_remove
+        .iter()
+        .enumerate()
+        .for_each(|(offset, idx)| { image_clusters.remove(idx - offset); });
+
+    unclassified_cluster
 }
 
-pub fn try_guess(image_clusters: &mut Vec<Cluster>, time: u64, verbose: bool) {
+pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
     let dur_time = Duration::seconds(time.try_into().unwrap());
 
-    let unclassified = image_clusters
-        .iter()
-        .filter(|cluster| !cluster.is_classified())
-        .cloned()
-        .collect::<Vec<Cluster>>();
+    let mut to_remove = Vec::new();
 
-    println!("{}", image_clusters.len());
-    println!("{}", unclassified.len());
-
-    unclassified
+    unclassified_cluster
+        .images
         .iter()
-        .for_each(|unclassified_cluster| {
-            unclassified_cluster
-                .images
-                .iter()
-                .filter(|image| image.timestamp.is_some())
-                .for_each(|unclassified_image| {
-                    for cluster in image_clusters.iter_mut() {
-                        if cluster
-                            .images
-                            .iter()
-                            .filter(|image| image.timestamp.is_some())
-                            .any(|image| image.timestamp.unwrap() - unclassified_image.timestamp.unwrap() < dur_time)
-                        {
-                            // println!("{:?}", unclassified_image.path);
-                        }
-                    }
-                })
-        })
+        .enumerate()
+        .filter(|(_, image)| image.timestamp.is_some())
+        .for_each(|(idx, unclassified_image)| {
+            for cluster in image_clusters.iter_mut() {
+                if cluster
+                    .images
+                    .iter()
+                    .filter(|image| image.timestamp.is_some())
+                    .any(|image| image.timestamp.unwrap() - unclassified_image.timestamp.unwrap() < dur_time)
+                {
+                    cluster.images.push(unclassified_image.clone());
+                    to_remove.push(idx);
+
+                    break;
+                }
+            }
+        });
+
+    to_remove
+        .iter()
+        .enumerate()
+        .for_each(|(offset, idx)| { unclassified_cluster.images.remove(idx - offset); });
 }
 
 pub fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bool) {
@@ -151,15 +173,9 @@ pub fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bo
             output.push(cluster.fmt_location());
 
             if let Ok(exists) = output.try_exists() {
-                let mut proceed = true;
-
                 if !exists && create_dir(&output).is_err() {
-                    proceed = false;
-
                     eprintln!("Error: an error occured while trying to create {:?} directory.", output);
-                }
-
-                if proceed {
+                } else {
                     cluster
                         .images
                         .iter()

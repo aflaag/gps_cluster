@@ -28,7 +28,7 @@ struct Args {
     try_guess: bool,
 
     #[clap(long, value_parser)]
-    time: Option<u64>,
+    time: Option<i64>,
 
     /// Use verbose output
     #[clap(short, long, value_parser)]
@@ -54,15 +54,17 @@ fn main() {
                 println!("Clusters found before merging: {}", image_clusters.len());
             }
 
-            utils::merge_clusters(&mut image_clusters);
+            let mut unclassified_cluster = utils::merge_unclassified(&mut image_clusters);
 
             if args.verbose {
                 println!("Clusters found after merging: {}", image_clusters.len());
             }
 
             if args.try_guess {
-                utils::try_guess(&mut image_clusters, args.time.unwrap(), args.verbose);
+                utils::try_guess(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap(), args.verbose);
             }
+
+            image_clusters.push(unclassified_cluster);
 
             utils::create_dirs(&image_clusters, &mut args.output, args.verbose);
         }
