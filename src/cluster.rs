@@ -3,6 +3,7 @@ use crate::utils::CENTER;
 use std::path::PathBuf;
 use geoutils::Location;
 use chrono::NaiveDateTime;
+use exif::{Tag, In, Value, Exif};
 
 /// Used to store a single image cluster.
 #[derive(Debug, Clone)]
@@ -39,9 +40,42 @@ impl Cluster {
     }
 }
 
+impl Default for Cluster {
+    fn default() -> Self {
+        Cluster {
+            location: CENTER,
+            images: vec![],
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Image {
     pub path: PathBuf,
     pub timestamp: Option<NaiveDateTime>,
     pub location: Option<Location>,
+}
+
+impl Image {
+    pub fn update_timestamp(&mut self, exif: &Exif) {
+        if let Some(time) = exif.get_field(Tag::DateTime, In::PRIMARY) {
+            if let Value::Ascii(timestamp) = &time.value {
+                self.timestamp = Some(
+                    NaiveDateTime::parse_from_str(
+                        &timestamp[0].iter().map(|byte| *byte as char).collect::<String>(),
+                        "%Y:%m:%d %H:%M:%S"
+                    )
+                    .unwrap()
+                );
+            }
+        }
+    }
+
+    pub fn is_classifiable(&self) -> bool {
+        if let Some(loc) = self.location {
+            loc != CENTER && !loc.latitude().is_nan() && !loc.longitude().is_nan()
+        } else {
+            false
+        }
+    }
 }

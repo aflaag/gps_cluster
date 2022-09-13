@@ -3,7 +3,6 @@ use crate::cluster::{Cluster, Image};
 use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}, io::BufReader};
 use exif::{Tag, In, Value, Reader};
 use geoutils::{Location, Distance};
-use chrono::{NaiveDateTime, Duration};
 
 /// Represents the center of the axes, the point of intersection
 /// between the prime meridian (Greenwich) and the Equator.
@@ -29,27 +28,17 @@ impl From<DMS> for DecimalDegrees {
     }
 }
 
-pub fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance, verbose: bool) {
+fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, verbose: bool) {
     let mut bufreader = BufReader::new(File::open(input).unwrap());
 
-    if let Ok(exif) = Reader::new().read_from_container(&mut bufreader) {
-        let mut image = Image {
-            path: input.clone(),
-            timestamp: None,
-            location: None,
-        };
+    let mut image = Image {
+        path: input.clone(),
+        timestamp: None,
+        location: None,
+    };
 
-        if let Some(time) = exif.get_field(Tag::DateTime, In::PRIMARY) {
-            if let Value::Ascii(timestamp) = &time.value {
-                image.timestamp = Some(
-                    NaiveDateTime::parse_from_str(
-                        &timestamp[0].iter().map(|byte| *byte as char).collect::<String>(),
-                        "%Y:%m:%d %H:%M:%S"
-                    )
-                    .unwrap()
-                );
-            }
-        }
+    if let Ok(exif) = Reader::new().read_from_container(&mut bufreader) {
+        image.update_timestamp(&exif);
 
         if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
             let lat_dd: DecimalDegrees = DMS::from(&latitude.value).into();
@@ -58,10 +47,15 @@ pub fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold:
                 let lon_dd: DecimalDegrees = DMS::from(&longitude.value).into();
 
                 if verbose {
-                    println!("{:?}: ({}, {})", input, lat_dd.0, lon_dd.0);
+                    println!("Found position for {:?}: ({}, {})", input, lat_dd.0, lon_dd.0);
                 }
 
                 image.location = Some(Location::new(lat_dd.0, lon_dd.0));
+
+                if !image.is_classifiable() {
+                    unclassified_cluster.images.push(image);
+                    return;
+                }
 
                 let mut found_cluster = false;
 
@@ -86,57 +80,28 @@ pub fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold:
                         images: vec![image],
                     })
                 }
-            } else if verbose {
-                eprintln!("Ignoring {:?}: longitude not found.", input);
+            } else {
+                unclassified_cluster.images.push(image);
             }
-        } else if verbose {
-            eprintln!("Ignoring {:?}: latitude not found.", input);
+        } else {
+            unclassified_cluster.images.push(image);
         }
     } else if verbose {
         eprintln!("Ignoring {:?}: unknown file format.", input);
     }
 }
 
-pub fn generate_clusters(input: &PathBuf, image_clusters: &mut Vec<Cluster>, threshold: Distance, verbose: bool) {
+pub fn generate_clusters(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, verbose: bool) {
     if metadata(input).unwrap().is_file() {
-        parse_file(input, image_clusters, threshold, verbose);
+        parse_file(input, image_clusters, unclassified_cluster, threshold, verbose);
     } else {
         for path in read_dir(input).unwrap() {
-            generate_clusters(&path.unwrap().path(), image_clusters, threshold, verbose);
+            generate_clusters(&path.unwrap().path(), image_clusters, unclassified_cluster, threshold, verbose);
         }
     }
 }
 
-pub fn merge_unclassified(image_clusters: &mut Vec<Cluster>) -> Cluster {
-    let mut to_remove = Vec::new();
-
-    let mut unclassified_cluster = Cluster {
-        location: CENTER,
-        images: Vec::new(),
-    };
-
-    image_clusters
-        .iter()
-        .enumerate()
-        .for_each(|(idx, cluster)| {
-            if !cluster.is_classified() {
-                unclassified_cluster.images.extend(cluster.images.clone());
-
-                to_remove.push(idx);
-            }
-        });
-
-    to_remove
-        .iter()
-        .enumerate()
-        .for_each(|(offset, idx)| { image_clusters.remove(idx - offset); });
-
-    unclassified_cluster
-}
-
 pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
-    // let dur_time = Duration::seconds(time.try_into().unwrap());
-
     let mut to_remove = Vec::new();
 
     unclassified_cluster

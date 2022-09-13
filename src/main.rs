@@ -48,13 +48,15 @@ fn main() {
         if out.unwrap().next().is_some() {
             eprintln!("Error: the given output folder is not empty.")
         } else {
-            utils::generate_clusters(&args.input, &mut image_clusters, Distance::from_meters(args.threshold), args.verbose);
+            let mut unclassified_cluster = Cluster::default();
+
+            utils::generate_clusters(&args.input, &mut image_clusters, &mut unclassified_cluster, Distance::from_meters(args.threshold), args.verbose);
 
             if args.verbose {
                 println!("Clusters found before merging: {}", image_clusters.len());
             }
 
-            let mut unclassified_cluster = utils::merge_unclassified(&mut image_clusters);
+            // let mut unclassified_cluster = utils::merge_unclassified(&mut image_clusters);
 
             if args.verbose {
                 println!("Clusters found after merging: {}", image_clusters.len());
