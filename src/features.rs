@@ -77,11 +77,34 @@ pub fn generate_clusters(args: &ProgramArgs, image_clusters: &mut Vec<Cluster>, 
 
     let gm_client = if args.human_readable { Some(GoogleMapsClient::new(&args.api_key.clone().unwrap())) } else { None };
 
-    image_clusters
-        .iter_mut()
-        .for_each(|cluster| cluster.update_location(&gm_client));
+    let len_clusters = image_clusters.len();
 
-    unclassified_cluster.update_location(&gm_client);
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            for (idx, cluster) in image_clusters.iter_mut().enumerate() {
+                cluster.update_location(&gm_client).await;
+
+                if args.verbose && args.human_readable {
+                    println!("Location of [{}/{}] clusters updated.", idx, len_clusters);
+                }
+            }
+            // image_clusters
+            //     .iter_mut()
+            //     .enumerate()
+            //     .for_each(async |(idx, cluster)| {
+            //         cluster.update_location(&gm_client).await;
+            //
+            //         if args.verbose && args.human_readable {
+            //             println!("Location of [{}/{}] clusters updated.", idx, len_clusters);
+            //         }
+            //     });
+
+            unclassified_cluster.update_location(&gm_client).await;
+        });
+
 }
 
 pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
@@ -107,7 +130,7 @@ pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Clust
                     to_remove.push(idx);
 
                     if verbose {
-                        println!("{:?} relocated into {:?} with a {}% reliability.", unclassified_image.path, cluster.location_string, ratio * 100.0);
+                        println!("{:?} relocated into {} with a {}% reliability.", unclassified_image.path, cluster.location_string.as_ref().unwrap(), ratio * 100.0);
                     }
                 }
             }

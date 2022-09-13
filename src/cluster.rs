@@ -26,18 +26,24 @@ impl Cluster {
         self.location != CENTER && !self.location.latitude().is_nan() && !self.location.longitude().is_nan()
     }
 
-    pub async fn reverse_geocoding(&self, client: &GoogleMapsClient) -> Option<Result<Response, Error>> {
-        if let Ok(position) = LatLng::try_from_f64(self.location.latitude(), self.location.longitude()) {
-            Some(
-                client
+    pub async fn reverse_geocoding(&self, client: &GoogleMapsClient) -> Option<GeocodingResponse> {
+        for image in &self.images {
+            if let Ok(position) = LatLng::try_from_f64(image.location.unwrap().latitude(), image.location.unwrap().longitude()) {
+                let request = client
                     .reverse_geocoding(position)
-                    .with_result_type(PlaceType::StreetAddress)
+                    .with_result_type(PlaceType::PointOfInterest)
+                    // .with_result_type(PlaceType::Locality)
+                    // .with_result_type(PlaceType::Cities)
                     .execute()
-                    .await
-            )
-        } else {
-            None
+                    .await;
+                
+                if let Ok(content) = request {
+                    return Some(content);
+                }
+            }
         }
+
+        None
     }
 
     unsafe fn update_location_with_coordinates_unchecked(&mut self) {
@@ -50,13 +56,32 @@ impl Cluster {
         self.location_string = Some(location_string);
     }
 
-    pub fn update_location(&mut self, gm_client: &Option<GoogleMapsClient>) {
+    pub async fn update_location(&mut self, gm_client: &Option<GoogleMapsClient>) {
         if self.location_string.is_none() {
             if !self.is_classified() {
                 self.location_string = Some("UNCLASSIFIED".to_string());
             } else {
                 if let Some(client) = gm_client {
-                    if let Some(position) = self.reverse_geocoding(&client) {
+                    if let Some(content) = self.reverse_geocoding(&client).await {
+                        self.location_string = Some(
+                            content
+                                .results
+                                .iter()
+                                .flat_map(|result| {
+                                    result
+                                        .address_components
+                                        .iter()
+                                        .map(|address_component| {
+                                            let mut string = address_component.short_name.to_string();
+
+                                            string.push(' ');
+
+                                            string
+                                        })
+                                })
+                                .collect::<Vec<String>>()
+                                .join(" - ")
+                        );
                     } else {
                         unsafe { self.update_location_with_coordinates_unchecked() }
                     }
