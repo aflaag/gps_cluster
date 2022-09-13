@@ -79,9 +79,9 @@ pub fn generate_clusters(args: &ProgramArgs, image_clusters: &mut Vec<Cluster>, 
 
     image_clusters
         .iter_mut()
-        .for_each(|cluster| cluster.update_location(gm_client.clone()));
+        .for_each(|cluster| cluster.update_location(&gm_client));
 
-    unclassified_cluster.update_location(gm_client);
+    unclassified_cluster.update_location(&gm_client);
 }
 
 pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {

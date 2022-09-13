@@ -5,6 +5,7 @@ use geoutils::Location;
 use chrono::NaiveDateTime;
 use exif::{Tag, In, Value, Exif};
 use google_maps::prelude::*;
+use google_maps::geocoding::{response::Response, error::Error};
 
 /// Used to store a single image cluster.
 #[derive(Debug, Clone)]
@@ -25,21 +26,42 @@ impl Cluster {
         self.location != CENTER && !self.location.latitude().is_nan() && !self.location.longitude().is_nan()
     }
 
-    pub fn update_location(&mut self, gm_client: Option<GoogleMapsClient>) {
+    pub async fn reverse_geocoding(&self, client: &GoogleMapsClient) -> Option<Result<Response, Error>> {
+        if let Ok(position) = LatLng::try_from_f64(self.location.latitude(), self.location.longitude()) {
+            Some(
+                client
+                    .reverse_geocoding(position)
+                    .with_result_type(PlaceType::StreetAddress)
+                    .execute()
+                    .await
+            )
+        } else {
+            None
+        }
+    }
+
+    unsafe fn update_location_with_coordinates_unchecked(&mut self) {
+        let mut location_string = self.location.latitude().to_string();
+
+        location_string.push('_');
+
+        location_string.push_str(&self.location.longitude().to_string());
+
+        self.location_string = Some(location_string);
+    }
+
+    pub fn update_location(&mut self, gm_client: &Option<GoogleMapsClient>) {
         if self.location_string.is_none() {
             if !self.is_classified() {
                 self.location_string = Some("UNCLASSIFIED".to_string());
             } else {
                 if let Some(client) = gm_client {
-                    unimplemented!()
+                    if let Some(position) = self.reverse_geocoding(&client) {
+                    } else {
+                        unsafe { self.update_location_with_coordinates_unchecked() }
+                    }
                 } else {
-                    let mut location_string = self.location.latitude().to_string();
-
-                    location_string.push('_');
-
-                    location_string.push_str(&self.location.longitude().to_string());
-
-                    self.location_string = Some(location_string);
+                    unsafe { self.update_location_with_coordinates_unchecked() }
                 }
             }
         }
