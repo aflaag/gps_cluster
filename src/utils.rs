@@ -112,33 +112,54 @@ pub fn try_guess(image_clusters: &mut [Cluster], unclassified_cluster: &mut Clus
         .for_each(|(idx, unclassified_image)| {
             let unclassified_image_timestamp = unclassified_image.timestamp.unwrap();
 
-            for cluster in image_clusters.iter_mut() {
-                if cluster
-                    .images
-                    .iter()
-                    .filter(|image| image.timestamp.is_some())
-                    .any(|image| {
-                        if (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time {
-                            print!("{:?} {:?}: ", image.path, unclassified_image.path);
-                            println!("{:?} {:?}", image.timestamp.unwrap(), unclassified_image_timestamp);
+            let best_cluster = image_clusters
+                .iter_mut()
+                .max_by_key(|cluster| {
+                    cluster
+                        .images
+                        .iter()
+                        .filter(|image| image.timestamp.is_some() && image.is_classifiable())
+                        .map(|image| (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time)
+                        .count()
+                });
 
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                {
-                    cluster.images.push(unclassified_image.clone());
+            if let Some(cluster) = best_cluster {
+                cluster.images.push(unclassified_image.clone());
 
-                    to_remove.push(idx);
+                to_remove.push(idx);
 
-                    if verbose {
-                        println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
-                    }
-
-                    break;
+                if verbose {
+                    println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
                 }
             }
+
+            // for cluster in image_clusters.iter_mut() {
+            //     if cluster
+            //         .images
+            //         .iter()
+            //         .filter(|image| image.timestamp.is_some())
+            //         .any(|image| {
+            //             if (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time {
+            //                 print!("{:?} {:?}: ", image.path, unclassified_image.path);
+            //                 println!("{:?} {:?}", image.timestamp.unwrap(), unclassified_image_timestamp);
+            //
+            //                 true
+            //             } else {
+            //                 false
+            //             }
+            //         })
+            //     {
+            //         cluster.images.push(unclassified_image.clone());
+            //
+            //         to_remove.push(idx);
+            //
+            //         if verbose {
+            //             println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
+            //         }
+            //
+            //         break;
+            //     }
+            // }
         });
 
     to_remove

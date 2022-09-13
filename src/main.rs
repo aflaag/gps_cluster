@@ -52,16 +52,6 @@ fn main() {
 
             utils::generate_clusters(&args.input, &mut image_clusters, &mut unclassified_cluster, Distance::from_meters(args.threshold), args.verbose);
 
-            if args.verbose {
-                println!("Clusters found before merging: {}", image_clusters.len());
-            }
-
-            // let mut unclassified_cluster = utils::merge_unclassified(&mut image_clusters);
-
-            if args.verbose {
-                println!("Clusters found after merging: {}", image_clusters.len());
-            }
-
             if args.try_guess {
                 utils::try_guess(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap(), args.verbose);
             }
