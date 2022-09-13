@@ -91,20 +91,9 @@ pub fn generate_clusters(args: &ProgramArgs, image_clusters: &mut Vec<Cluster>, 
                     println!("Location of [{}/{}] clusters updated.", idx, len_clusters);
                 }
             }
-            // image_clusters
-            //     .iter_mut()
-            //     .enumerate()
-            //     .for_each(async |(idx, cluster)| {
-            //         cluster.update_location(&gm_client).await;
-            //
-            //         if args.verbose && args.human_readable {
-            //             println!("Location of [{}/{}] clusters updated.", idx, len_clusters);
-            //         }
-            //     });
 
             unclassified_cluster.update_location(&gm_client).await;
         });
-
 }
 
 pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {

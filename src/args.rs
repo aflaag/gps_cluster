@@ -22,7 +22,7 @@ pub struct ProgramArgs {
     pub relocate: bool,
 
     #[clap(long, value_parser)]
-    pub time: Option<i64>,
+    pub time: Option<u64>,
 
     #[clap(long, value_parser, requires = "api-key")]
     pub human_readable: bool,

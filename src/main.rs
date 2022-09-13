@@ -23,7 +23,7 @@ fn main() {
             generate_clusters(&args, &mut image_clusters, &mut unclassified_cluster);
 
             if args.relocate {
-                relocate(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap(), args.verbose);
+                relocate(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap() as i64, args.verbose);
             }
 
             image_clusters.push(unclassified_cluster);
