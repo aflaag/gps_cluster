@@ -7,4 +7,5 @@ edition = "2021"
 chrono = "0.4.22"
 clap = { version = "3.2.20", features = ["derive"] }
 geoutils = "0.5.1"
+google_maps = "3.0.0"
 kamadak-exif = "0.5.4"
