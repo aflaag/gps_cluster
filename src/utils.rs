@@ -101,7 +101,7 @@ pub fn generate_clusters(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unc
     }
 }
 
-pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
+pub fn try_guess(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
     let mut to_remove = Vec::new();
 
     unclassified_cluster
@@ -110,15 +110,31 @@ pub fn try_guess(image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut C
         .enumerate()
         .filter(|(_, image)| image.timestamp.is_some())
         .for_each(|(idx, unclassified_image)| {
+            let unclassified_image_timestamp = unclassified_image.timestamp.unwrap();
+
             for cluster in image_clusters.iter_mut() {
                 if cluster
                     .images
                     .iter()
                     .filter(|image| image.timestamp.is_some())
-                    .any(|image| (image.timestamp.unwrap() - unclassified_image.timestamp.unwrap()).num_seconds().abs() < time)
+                    .any(|image| {
+                        if (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time {
+                            print!("{:?} {:?}: ", image.path, unclassified_image.path);
+                            println!("{:?} {:?}", image.timestamp.unwrap(), unclassified_image_timestamp);
+
+                            true
+                        } else {
+                            false
+                        }
+                    })
                 {
                     cluster.images.push(unclassified_image.clone());
+
                     to_remove.push(idx);
+
+                    if verbose {
+                        println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
+                    }
 
                     break;
                 }
@@ -150,7 +166,7 @@ pub fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bo
                             if copy(&image.path, &output).is_err() {
                                 eprintln!("Error: an error occured while trying to save {:?}.", output);
                             } else if verbose {
-                                println!("Successfully saved {:?}.", output);
+                                // println!("Successfully saved {:?}.", output);
                             }
 
                             output.pop();
