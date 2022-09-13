@@ -5,7 +5,15 @@ use exif::{Tag, In, Value, Reader};
 use geoutils::{Location, Distance};
 
 fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, verbose: bool) {
-    let mut bufreader = BufReader::new(File::open(input).unwrap());
+    let file = File::open(input);
+
+    if file.is_err() {
+        eprintln!("Error while trying to open {:?}.", input);
+
+        return;
+    }
+
+    let mut bufreader = BufReader::new(file.unwrap());
 
     let mut image = Image {
         path: input.clone(),
@@ -16,48 +24,34 @@ fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_c
     if let Ok(exif) = Reader::new().read_from_container(&mut bufreader) {
         image.update_timestamp(&exif);
 
-        if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
-            let lat_dd: DecimalDegrees = DMS::from(&latitude.value).into();
+        image.update_location(&exif);
 
-            if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
-                let lon_dd: DecimalDegrees = DMS::from(&longitude.value).into();
+        if image.location.is_some() && image.is_classifiable() {
+            if verbose {
+                println!("Position found for {:?}", image.path);
+            }
 
-                if verbose {
-                    println!("Found position for {:?}: ({}, {})", input, lat_dd.0, lon_dd.0);
-                }
-
-                image.location = Some(Location::new(lat_dd.0, lon_dd.0));
-
-                if !image.is_classifiable() {
-                    unclassified_cluster.images.push(image);
-                    return;
-                }
-
-                let mut found_cluster = false;
-
-                for cluster in image_clusters.iter_mut() {
+            let nearest_cluster = image_clusters
+                .iter_mut()
+                .find(|cluster| {
                     match image.location.unwrap().is_in_circle(&cluster.location, threshold) {
-                        Ok(is_in_circle) => {
-                            if is_in_circle {
-                                cluster.images.push(image.clone());
+                        Ok(is_in_circle) => is_in_circle,
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
 
-                                found_cluster = true;
-
-                                break;
-                            }
-                        },
-                        Err(e) => eprintln!("Error: {}", e),
+                            false
+                        }
                     }
-                }
+                });
 
-                if !found_cluster {
-                    image_clusters.push(Cluster {
-                        location: image.location.unwrap(),
-                        images: vec![image],
-                    })
-                }
+            if let Some(cluster) = nearest_cluster {
+                cluster.images.push(image);
             } else {
-                unclassified_cluster.images.push(image);
+                image_clusters.push(Cluster {
+                    location: image.location.unwrap(),
+                    images: vec![image],
+                    location_string: None,
+                })
             }
         } else {
             unclassified_cluster.images.push(image);
@@ -78,7 +72,13 @@ fn generate_clusters_internals(input: &PathBuf, image_clusters: &mut Vec<Cluster
 }
 
 pub fn generate_clusters(args: &ProgramArgs, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster) {
-    generate_clusters_internals(&args.input, image_clusters, unclassified_cluster, Distance::from_meters(args.threshold), args.human_readable, args.verbose)
+    generate_clusters_internals(&args.input, image_clusters, unclassified_cluster, Distance::from_meters(args.threshold), args.human_readable, args.verbose);
+
+    image_clusters
+        .iter_mut()
+        .for_each(|cluster| cluster.update_location());
+
+    unclassified_cluster.update_location();
 }
 
 pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
@@ -104,7 +104,7 @@ pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Clust
                     to_remove.push(idx);
 
                     if verbose {
-                        println!("{:?} relocated into {:?} with a {}% reliability.", unclassified_image.path, cluster.fmt_location(), ratio * 100.0);
+                        println!("{:?} relocated into {:?} with a {}% reliability.", unclassified_image.path, cluster.location_string, ratio * 100.0);
                     }
                 }
             }
@@ -120,7 +120,7 @@ pub fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bo
     image_clusters
         .iter()
         .for_each(|cluster| {
-            output.push(cluster.fmt_location());
+            output.push(cluster.clone().location_string.unwrap());
 
             if let Ok(exists) = output.try_exists() {
                 if !exists && create_dir(&output).is_err() {

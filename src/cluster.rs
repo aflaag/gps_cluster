@@ -1,4 +1,4 @@
-use crate::utils::CENTER;
+use crate::utils::{CENTER, DecimalDegrees, DMS};
 
 use std::path::PathBuf;
 use geoutils::Location;
@@ -13,6 +13,8 @@ pub struct Cluster {
 
     /// The images.
     pub images: Vec<Image>,
+
+    pub location_string: Option<String>,
 }
 
 impl Cluster {
@@ -22,20 +24,19 @@ impl Cluster {
         self.location != CENTER && !self.location.latitude().is_nan() && !self.location.longitude().is_nan()
     }
 
-    /// Used to evaluate the name of the folder of the cluster,
-    /// based on the coordinates of the location; returns `UNCLASSIFIED`
-    /// when the cluster has an invalid location.
-    pub fn fmt_location(&self) -> String {
-        if !self.is_classified() {
-            "UNCLASSIFIED".to_string()
-        } else {
-            let mut output = self.location.latitude().to_string();
+    pub fn update_location(&mut self) {
+        if self.location_string.is_none() {
+            if !self.is_classified() {
+                self.location_string = Some("UNCLASSIFIED".to_string());
+            } else {
+                let mut location_string = self.location.latitude().to_string();
 
-            output.push('_');
+                location_string.push('_');
 
-            output.push_str(&self.location.longitude().to_string());
+                location_string.push_str(&self.location.longitude().to_string());
 
-            output
+                self.location_string = Some(location_string);
+            }
         }
     }
 
@@ -57,6 +58,7 @@ impl Default for Cluster {
         Cluster {
             location: CENTER,
             images: vec![],
+            location_string: None,
         }
     }
 }
@@ -82,10 +84,26 @@ impl Image {
     }
 
     pub fn update_timestamp(&mut self, exif: &Exif) {
-        if let Some(datetime) = exif.get_field(Tag::DateTime, In::PRIMARY) {
-            self.update_timestamp_internals(&datetime.value)
-        } else if let Some(datetime_original) = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
-            self.update_timestamp_internals(&datetime_original.value)
+        if self.timestamp.is_none() {
+            if let Some(datetime) = exif.get_field(Tag::DateTime, In::PRIMARY) {
+                self.update_timestamp_internals(&datetime.value)
+            } else if let Some(datetime_original) = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
+                self.update_timestamp_internals(&datetime_original.value)
+            }
+        }
+    }
+
+    pub fn update_location(&mut self, exif: &Exif) {
+        if self.location.is_none() {
+            if let Some(latitude) = exif.get_field(Tag::GPSLatitude, In::PRIMARY) {
+                let lat_dd: DecimalDegrees = DMS::from(&latitude.value).into();
+
+                if let Some(longitude) = exif.get_field(Tag::GPSLongitude, In::PRIMARY) {
+                    let lon_dd: DecimalDegrees = DMS::from(&longitude.value).into();
+
+                    self.location = Some(Location::new(lat_dd.0, lon_dd.0));
+                }
+            }
         }
     }
 
