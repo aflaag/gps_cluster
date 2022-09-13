@@ -3,6 +3,7 @@ use crate::{cluster::{Cluster, Image}, args::ProgramArgs, utils::*};
 use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}, io::BufReader, cmp::Ordering};
 use exif::{Tag, In, Value, Reader};
 use geoutils::{Location, Distance};
+use google_maps::prelude::*;
 
 fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, verbose: bool) {
     let file = File::open(input);
@@ -61,24 +62,26 @@ fn parse_file(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_c
     }
 }
 
-fn generate_clusters_internals(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, human_readable: bool, verbose: bool) {
+fn generate_clusters_internals(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster, threshold: Distance, verbose: bool) {
     if metadata(input).unwrap().is_file() {
         parse_file(input, image_clusters, unclassified_cluster, threshold, verbose);
     } else {
         for path in read_dir(input).unwrap() {
-            generate_clusters_internals(&path.unwrap().path(), image_clusters, unclassified_cluster, threshold, human_readable, verbose);
+            generate_clusters_internals(&path.unwrap().path(), image_clusters, unclassified_cluster, threshold, verbose);
         }
     }
 }
 
 pub fn generate_clusters(args: &ProgramArgs, image_clusters: &mut Vec<Cluster>, unclassified_cluster: &mut Cluster) {
-    generate_clusters_internals(&args.input, image_clusters, unclassified_cluster, Distance::from_meters(args.threshold), args.human_readable, args.verbose);
+    generate_clusters_internals(&args.input, image_clusters, unclassified_cluster, Distance::from_meters(args.threshold), args.verbose);
+
+    let gm_client = if args.human_readable { Some(GoogleMapsClient::new(&args.api_key.clone().unwrap())) } else { None };
 
     image_clusters
         .iter_mut()
-        .for_each(|cluster| cluster.update_location());
+        .for_each(|cluster| cluster.update_location(gm_client.clone()));
 
-    unclassified_cluster.update_location();
+    unclassified_cluster.update_location(gm_client);
 }
 
 pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {

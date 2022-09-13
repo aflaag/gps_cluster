@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use geoutils::Location;
 use chrono::NaiveDateTime;
 use exif::{Tag, In, Value, Exif};
+use google_maps::prelude::*;
 
 /// Used to store a single image cluster.
 #[derive(Debug, Clone)]
@@ -24,18 +25,22 @@ impl Cluster {
         self.location != CENTER && !self.location.latitude().is_nan() && !self.location.longitude().is_nan()
     }
 
-    pub fn update_location(&mut self) {
+    pub fn update_location(&mut self, gm_client: Option<GoogleMapsClient>) {
         if self.location_string.is_none() {
             if !self.is_classified() {
                 self.location_string = Some("UNCLASSIFIED".to_string());
             } else {
-                let mut location_string = self.location.latitude().to_string();
+                if let Some(client) = gm_client {
+                    unimplemented!()
+                } else {
+                    let mut location_string = self.location.latitude().to_string();
 
-                location_string.push('_');
+                    location_string.push('_');
 
-                location_string.push_str(&self.location.longitude().to_string());
+                    location_string.push_str(&self.location.longitude().to_string());
 
-                self.location_string = Some(location_string);
+                    self.location_string = Some(location_string);
+                }
             }
         }
     }

@@ -24,8 +24,11 @@ pub struct ProgramArgs {
     #[clap(long, value_parser)]
     pub time: Option<i64>,
 
-    #[clap(long, value_parser)]
+    #[clap(long, value_parser, requires = "api-key")]
     pub human_readable: bool,
+
+    #[clap(long, value_parser)]
+    pub api_key: Option<String>,
 
     /// Use verbose output
     #[clap(short, long, value_parser)]
