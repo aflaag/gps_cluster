@@ -22,10 +22,8 @@ struct Args {
     #[clap(short, long, value_parser)]
     threshold: f64,
 
-    /// If enabled, the program tries to guess the location
-    /// of the images which don't have a valid metadata.
     #[clap(long, value_parser, requires = "time")]
-    try_guess: bool,
+    relocate: bool,
 
     #[clap(long, value_parser)]
     time: Option<i64>,
@@ -52,8 +50,8 @@ fn main() {
 
             utils::generate_clusters(&args.input, &mut image_clusters, &mut unclassified_cluster, Distance::from_meters(args.threshold), args.verbose);
 
-            if args.try_guess {
-                utils::try_guess(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap(), args.verbose);
+            if args.relocate {
+                utils::relocate(&mut image_clusters, &mut unclassified_cluster, args.time.unwrap(), args.verbose);
             }
 
             image_clusters.push(unclassified_cluster);

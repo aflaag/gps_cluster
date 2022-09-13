@@ -25,6 +25,7 @@ Also, a `--verbose` flag is available, for a better console output.
 
 ## TODO list
 
+- time shouldn't be i64
 - support for non-empty folders
 - google maps apis integrations for folder names
 

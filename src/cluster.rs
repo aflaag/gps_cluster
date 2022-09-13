@@ -38,6 +38,18 @@ impl Cluster {
             output
         }
     }
+
+    pub fn reliability(&self, time: i64, unclassified_image_timestamp: NaiveDateTime) -> f32 {
+        self
+            .images
+            .iter()
+            .filter(|image| {
+                image.timestamp.is_some() &&
+                image.is_classifiable() &&
+                (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time
+            })
+            .count() as f32 / self.images.len() as f32
+    }
 }
 
 impl Default for Cluster {
@@ -57,17 +69,23 @@ pub struct Image {
 }
 
 impl Image {
+    fn update_timestamp_internals(&mut self, time: &Value) {
+        if let Value::Ascii(timestamp) = time {
+            self.timestamp = Some(
+                NaiveDateTime::parse_from_str(
+                    &timestamp[0].iter().map(|byte| *byte as char).collect::<String>(),
+                    "%Y:%m:%d %H:%M:%S"
+                )
+                .unwrap()
+            );
+        }
+    }
+
     pub fn update_timestamp(&mut self, exif: &Exif) {
-        if let Some(time) = exif.get_field(Tag::DateTime, In::PRIMARY) {
-            if let Value::Ascii(timestamp) = &time.value {
-                self.timestamp = Some(
-                    NaiveDateTime::parse_from_str(
-                        &timestamp[0].iter().map(|byte| *byte as char).collect::<String>(),
-                        "%Y:%m:%d %H:%M:%S"
-                    )
-                    .unwrap()
-                );
-            }
+        if let Some(datetime) = exif.get_field(Tag::DateTime, In::PRIMARY) {
+            self.update_timestamp_internals(&datetime.value)
+        } else if let Some(datetime_original) = exif.get_field(Tag::DateTimeOriginal, In::PRIMARY) {
+            self.update_timestamp_internals(&datetime_original.value)
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::cluster::{Cluster, Image};
 
-use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}, io::BufReader};
+use std::{path::PathBuf, fs::{File, metadata, read_dir, create_dir, copy}, io::BufReader, cmp::Ordering};
 use exif::{Tag, In, Value, Reader};
 use geoutils::{Location, Distance};
 
@@ -101,7 +101,7 @@ pub fn generate_clusters(input: &PathBuf, image_clusters: &mut Vec<Cluster>, unc
     }
 }
 
-pub fn try_guess(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
+pub fn relocate(image_clusters: &mut [Cluster], unclassified_cluster: &mut Cluster, time: i64, verbose: bool) {
     let mut to_remove = Vec::new();
 
     unclassified_cluster
@@ -112,54 +112,22 @@ pub fn try_guess(image_clusters: &mut [Cluster], unclassified_cluster: &mut Clus
         .for_each(|(idx, unclassified_image)| {
             let unclassified_image_timestamp = unclassified_image.timestamp.unwrap();
 
-            let best_cluster = image_clusters
+            let best_cluster_and_ratio = image_clusters
                 .iter_mut()
-                .max_by_key(|cluster| {
-                    cluster
-                        .images
-                        .iter()
-                        .filter(|image| image.timestamp.is_some() && image.is_classifiable())
-                        .map(|image| (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time)
-                        .count()
-                });
+                .map(|cluster| (cluster.reliability(time, unclassified_image_timestamp), cluster))
+                .max_by(|(ratio1, _), (ratio2, _)| ratio1.partial_cmp(ratio2).unwrap_or(Ordering::Equal));
 
-            if let Some(cluster) = best_cluster {
-                cluster.images.push(unclassified_image.clone());
+            if let Some((ratio, cluster)) = best_cluster_and_ratio {
+                if (ratio - 0.0).abs() >= f32::EPSILON {
+                    cluster.images.push(unclassified_image.clone());
 
-                to_remove.push(idx);
+                    to_remove.push(idx);
 
-                if verbose {
-                    println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
+                    if verbose {
+                        println!("{:?} relocated into {:?} with a {}% reliability.", unclassified_image.path, cluster.fmt_location(), ratio * 100.0);
+                    }
                 }
             }
-
-            // for cluster in image_clusters.iter_mut() {
-            //     if cluster
-            //         .images
-            //         .iter()
-            //         .filter(|image| image.timestamp.is_some())
-            //         .any(|image| {
-            //             if (image.timestamp.unwrap() - unclassified_image_timestamp).num_seconds().abs() < time {
-            //                 print!("{:?} {:?}: ", image.path, unclassified_image.path);
-            //                 println!("{:?} {:?}", image.timestamp.unwrap(), unclassified_image_timestamp);
-            //
-            //                 true
-            //             } else {
-            //                 false
-            //             }
-            //         })
-            //     {
-            //         cluster.images.push(unclassified_image.clone());
-            //
-            //         to_remove.push(idx);
-            //
-            //         if verbose {
-            //             println!("{:?} relocated into {:?}.", unclassified_image.path, cluster.fmt_location());
-            //         }
-            //
-            //         break;
-            //     }
-            // }
         });
 
     to_remove
@@ -187,14 +155,14 @@ pub fn create_dirs(image_clusters: &[Cluster], output: &mut PathBuf, verbose: bo
                             if copy(&image.path, &output).is_err() {
                                 eprintln!("Error: an error occured while trying to save {:?}.", output);
                             } else if verbose {
-                                // println!("Successfully saved {:?}.", output);
+                                println!("Successfully saved {:?}.", output);
                             }
 
                             output.pop();
                         })
                 }
-            } else if verbose {
-                eprintln!("Error: can't check existence of {:?}", output);
+            } else {
+                eprintln!("Error: can't check the existence of {:?}", output);
             }
 
             output.pop();
